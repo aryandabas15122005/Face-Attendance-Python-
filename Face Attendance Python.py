@@ -1,0 +1,92 @@
+import face_recognition
+import cv2
+import os
+import datetime
+from openpyxl import Workbook, load_workbook
+
+# Path to the folder with known faces
+KNOWN_FACES_DIR = 'known_faces'
+# Excel file for attendance
+ATTENDANCE_FILE = 'attendance.xlsx'
+
+def load_known_faces():
+    """Load known faces and their names from the folder."""
+    known_encodings = []
+    known_names = []
+    for filename in os.listdir(KNOWN_FACES_DIR):
+        if filename.endswith(('.jpg', '.jpeg', '.png')):
+            image_path = os.path.join(KNOWN_FACES_DIR, filename)
+            image = face_recognition.load_image_file(image_path)
+            encodings = face_recognition.face_encodings(image)
+            if encodings:
+                known_encodings.append(encodings[0])
+                known_names.append(os.path.splitext(filename)[0])
+    return known_encodings, known_names
+
+def capture_image():
+    """Capture an image from the webcam."""
+    cap = cv2.VideoCapture(0)
+    if not cap.isOpened():
+        print("Error: Could not open webcam.")
+        return None
+    print("Press 's' to capture the image for attendance.")
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        cv2.imshow('Capture Attendance', frame)
+        if cv2.waitKey(1) & 0xFF == ord('s'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+    return frame
+
+def recognize_and_mark_attendance(known_encodings, known_names, image):
+    """Recognize faces in the image and mark attendance."""
+    # Convert BGR to RGB
+    rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    face_locations = face_recognition.face_locations(rgb_image)
+    face_encodings = face_recognition.face_encodings(rgb_image, face_locations)
+    
+    # Load or create Excel workbook
+    if os.path.exists(ATTENDANCE_FILE):
+        wb = load_workbook(ATTENDANCE_FILE)
+        ws = wb.active
+    else:
+        wb = Workbook()
+        ws = wb.active
+        ws.append(['Name', 'Date', 'Time'])
+    
+    now = datetime.datetime.now()
+    date_str = now.strftime('%Y-%m-%d')
+    time_str = now.strftime('%H:%M:%S')
+    
+    recognized_names = set()
+    for face_encoding in face_encodings:
+        matches = face_recognition.compare_faces(known_encodings, face_encoding)
+        name = "Unknown"
+        if True in matches:
+            first_match_index = matches.index(True)
+            name = known_names[first_match_index]
+            if name not in recognized_names:
+                recognized_names.add(name)
+                ws.append([name, date_str, time_str])
+                print(f"Attendance marked for {name}")
+    
+    wb.save(ATTENDANCE_FILE)
+    print("Attendance updated in Excel.")
+
+def main():
+    known_encodings, known_names = load_known_faces()
+    if not known_encodings:
+        print("No known faces found. Add photos to the 'known_faces' folder.")
+        return
+    
+    image = capture_image()
+    if image is not None:
+        recognize_and_mark_attendance(known_encodings, known_names, image)
+    else:
+        print("No image captured.")
+
+if __name__ == "__main__":
+    main()
